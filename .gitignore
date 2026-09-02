@@ -1,0 +1,6 @@
+.terraform/
+.vscode/
+*.tfstate
+*.tfstate.backup
+*.zip
+terraform.tfvars
