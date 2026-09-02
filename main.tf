@@ -154,7 +154,7 @@ resource "aws_lambda_function" "silver_lambda" {
   source_code_hash = data.archive_file.silver_zip.output_base64sha256
   function_name    = "lambda_silver_generate_parquet"
   role             = aws_iam_role.lambda_exec_role.arn
-  handler          = "lambda_generate_parquet.lambda_handler"
+  handler = "lambda_silver_generate_parquet.lambda_handler"
   runtime          = "python3.11"
   timeout          = 60
   memory_size      = 512
