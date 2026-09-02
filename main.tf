@@ -118,7 +118,7 @@ resource "aws_lambda_function" "bronze_lambda" {
   }
 }
 
-# EventBridge Rule (Schedule Trigger - 30 minutes)
+# EventBridge Rule (Schedule Trigger - Hourly)
 resource "aws_cloudwatch_event_rule" "hourly_schedule" {
   name                = "weather_fetch_hourly_rule"
   schedule_expression = "cron(5,35 * * * ? *)"
@@ -153,18 +153,16 @@ resource "aws_cloudwatch_log_group" "silver_lambda_logs" {
   retention_in_days = 7
 }
 
-# AWSSDKPandas Layer за Pandas & PyArrow dependences in Lambda
 resource "aws_lambda_function" "silver_lambda" {
   filename         = data.archive_file.silver_zip.output_path
   source_code_hash = data.archive_file.silver_zip.output_base64sha256
   function_name    = "lambda_silver_generate_parquet"
   role             = aws_iam_role.lambda_exec_role.arn
-  handler = "lambda_silver_generate_parquet.lambda_handler"
+  handler          = "lambda_silver_generate_parquet.lambda_handler"
   runtime          = "python3.11"
   timeout          = 60
   memory_size      = 512
 
-  # Adding AWS managed Data Wrangler Layer for Pandas/PyArrow
   layers = [
     "arn:aws:lambda:${var.aws_region}:336392948345:layer:AWSSDKPandas-Python311:12"
   ]
@@ -174,26 +172,50 @@ resource "aws_lambda_function" "silver_lambda" {
       SILVER_BUCKET_NAME = aws_s3_bucket.silver_bucket.bucket
     }
   }
-}
-
-# S3 Event Trigger: When a new JSON file is created in the Bronze bucket, trigger the Silver Lambda
-resource "aws_lambda_permission" "allow_s3_to_trigger_silver" {
-  statement_id  = "AllowExecutionFromS3Bucket"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.silver_lambda.function_name
-  principal     = "s3.amazonaws.com"
-  source_arn    = aws_s3_bucket.bronze_bucket.arn
-}
-
-resource "aws_s3_bucket_notification" "bronze_file_notification" {
-  bucket = aws_s3_bucket.bronze_bucket.id
-
-  lambda_function {
-    lambda_function_arn = aws_lambda_function.silver_lambda.arn
-    events              = ["s3:ObjectCreated:*"]
-  }
 
   depends_on = [
-    aws_lambda_permission.allow_s3_to_trigger_silver
+    aws_cloudwatch_log_group.silver_lambda_logs
   ]
+}
+
+# ==========================================
+# 5. S3 EVENTBRIDGE NOTIFICATION & TRIGGER
+# ==========================================
+
+# Активиране на EventBridge notifications за Bronze бъкета
+resource "aws_s3_bucket_notification" "bronze_file_notification" {
+  bucket      = aws_s3_bucket.bronze_bucket.id
+  eventbridge = true
+}
+
+# EventBridge Rule: Прихваща 'Object Created' събития от Bronze бъкета
+resource "aws_cloudwatch_event_rule" "s3_bronze_object_created" {
+  name        = "s3_bronze_object_created_rule"
+  description = "Trigger Silver Lambda on new S3 object in Bronze bucket"
+
+  event_pattern = jsonencode({
+    source      = ["aws.s3"]
+    detail-type = ["Object Created"]
+    detail = {
+      bucket = {
+        name = [aws_s3_bucket.bronze_bucket.bucket]
+      }
+    }
+  })
+}
+
+# EventBridge Target: Извиква Silver Lambda
+resource "aws_cloudwatch_event_target" "trigger_silver_lambda" {
+  rule      = aws_cloudwatch_event_rule.s3_bronze_object_created.name
+  target_id = "TriggerSilverLambda"
+  arn       = aws_lambda_function.silver_lambda.arn
+}
+
+# Разрешение за EventBridge да вика Silver Lambda
+resource "aws_lambda_permission" "allow_eventbridge_to_trigger_silver" {
+  statement_id  = "AllowExecutionFromEventBridge"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.silver_lambda.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.s3_bronze_object_created.arn
 }
