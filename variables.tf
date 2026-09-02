@@ -1,16 +1,17 @@
 variable "aws_region" {
   type        = string
-  description = "AWS region where resources will be deployed"
   default     = "eu-north-1"
+  description = "AWS resource region"
 }
 
-variable "s3_bucket_name" {
+variable "environment" {
   type        = string
-  description = "Unique name for the S3 bucket storing weather payloads"
+  default     = "dev"
+  description = "Environment (dev, stage, prod)"
 }
 
 variable "openweather_api_key" {
   type        = string
-  description = "API key for OpenWeatherMap"
   sensitive   = true
+  description = "API Key for OpenWeather Service"
 }

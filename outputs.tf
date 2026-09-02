@@ -1,24 +1,19 @@
-output "s3_bucket_name" {
-  description = "Name of the S3 bucket storing weather payloads"
-  value       = aws_s3_bucket.weather_storage.id
+output "bronze_bucket_name" {
+  value       = aws_s3_bucket.bronze_bucket.bucket
+  description = "Име на Bronze S3 бъкета"
 }
 
-output "s3_bucket_arn" {
-  description = "ARN of the S3 bucket"
-  value       = aws_s3_bucket.weather_storage.arn
+output "silver_bucket_name" {
+  value       = aws_s3_bucket.silver_bucket.bucket
+  description = "Име на Silver S3 бъкета"
 }
 
-output "lambda_function_name" {
-  description = "Name of the deployed Lambda function"
-  value       = aws_lambda_function.get_weather.function_name
+output "bronze_lambda_arn" {
+  value       = aws_lambda_function.bronze_lambda.arn
+  description = "ARN на Bronze Lambda функцията"
 }
 
-output "lambda_function_arn" {
-  description = "ARN of the deployed Lambda function"
-  value       = aws_lambda_function.get_weather.arn
-}
-
-output "cloudwatch_log_group" {
-  description = "CloudWatch Log Group path for Lambda logs"
-  value       = aws_cloudwatch_log_group.lambda_log_group.name
+output "silver_lambda_arn" {
+  value       = aws_lambda_function.silver_lambda.arn
+  description = "ARN на Silver Lambda функцията"
 }
