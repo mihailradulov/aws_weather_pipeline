@@ -148,6 +148,11 @@ data "archive_file" "silver_zip" {
   output_path = "${path.module}/build/silver.zip"
 }
 
+resource "aws_cloudwatch_log_group" "silver_lambda_logs" {
+  name              = "/aws/lambda/lambda_silver_generate_parquet"
+  retention_in_days = 7
+}
+
 # AWSSDKPandas Layer за Pandas & PyArrow dependences in Lambda
 resource "aws_lambda_function" "silver_lambda" {
   filename         = data.archive_file.silver_zip.output_path
@@ -186,8 +191,9 @@ resource "aws_s3_bucket_notification" "bronze_file_notification" {
   lambda_function {
     lambda_function_arn = aws_lambda_function.silver_lambda.arn
     events              = ["s3:ObjectCreated:*"]
-    filter_suffix       = ".json"
   }
 
-  depends_on = [aws_lambda_permission.allow_s3_to_trigger_silver]
+  depends_on = [
+    aws_lambda_permission.allow_s3_to_trigger_silver
+  ]
 }
