@@ -38,7 +38,7 @@ def lambda_handler(event, context):
 
             raw_data = json.loads(response.data.decode('utf-8'))
             
-            # Добавяме ingestion метаданни към суровия обвиващ обект
+            # Add ingestion metadata to the raw payload
             bronze_payload = {
                 "ingested_at_utc": now_utc.isoformat(),
                 "city_requested": city,

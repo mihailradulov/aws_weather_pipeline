@@ -138,6 +138,34 @@ resource "aws_lambda_permission" "allow_eventbridge" {
   source_arn    = aws_cloudwatch_event_rule.hourly_schedule.arn
 }
 
+# Policy for Glue Catalog access (for Silver Lambda dynamic partition creation)
+resource "aws_iam_policy" "glue_partition_policy" {
+  name        = "weather_data_lake_glue_policy_${var.environment}"
+  description = "IAM policy for creating dynamic partitions in Glue Data Catalog"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "glue:GetDatabase",
+          "glue:GetTable",
+          "glue:GetPartition",
+          "glue:GetPartitions",
+          "glue:CreatePartition"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_glue" {
+  role       = aws_iam_role.lambda_exec_role.name
+  policy_arn = aws_iam_policy.glue_partition_policy.arn
+}
+
 # ==========================================
 # 4. LAMBDA 2: SILVER (lambda_silver_generate_parquet)
 # ==========================================
@@ -170,6 +198,8 @@ resource "aws_lambda_function" "silver_lambda" {
   environment {
     variables = {
       SILVER_BUCKET_NAME = aws_s3_bucket.silver_bucket.bucket
+      GLUE_DATABASE_NAME = aws_glue_catalog_database.weather_silver_db.name
+      GLUE_TABLE_NAME    = aws_glue_catalog_table.weather_silver_table.name
     }
   }
 
@@ -244,6 +274,200 @@ resource "aws_glue_crawler" "silver_weather_crawler" {
   schema_change_policy {
     delete_behavior = "LOG"
     update_behavior = "UPDATE_IN_DATABASE"
+  }
+}
+
+# Glue Table definition for Silver Parquet weather data
+resource "aws_glue_catalog_table" "weather_silver_table" {
+  name          = "s3_weather_silver"
+  database_name = aws_glue_catalog_database.weather_silver_db.name
+  table_type    = "EXTERNAL_TABLE"
+
+  parameters = {
+    "classification"        = "parquet"
+    "typeOfData"            = "file"
+    "parquet.compression"   = "SNAPPY"
+  }
+
+  storage_descriptor {
+    location      = "s3://${aws_s3_bucket.silver_bucket.bucket}/"
+    input_format  = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat"
+    output_format = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
+
+    ser_de_info {
+      name                   = "ParquetHiveSerDe"
+      serialization_library = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+    }
+
+    columns {
+      name = "city_id"
+      type = "bigint"
+    }
+    columns {
+      name = "city_name"
+      type = "string"
+    }
+    columns {
+      name = "country"
+      type = "string"
+    }
+    columns {
+      name = "coord_lon"
+      type = "double"
+    }
+    columns {
+      name = "coord_lat"
+      type = "double"
+    }
+    columns {
+      name = "weather_id"
+      type = "bigint"
+    }
+    columns {
+      name = "weather_main"
+      type = "string"
+    }
+    columns {
+      name = "weather_description"
+      type = "string"
+    }
+    columns {
+      name = "weather_icon"
+      type = "string"
+    }
+    columns {
+      name = "base_station"
+      type = "string"
+    }
+    columns {
+      name = "temp"
+      type = "double"
+    }
+    columns {
+      name = "feels_like"
+      type = "double"
+    }
+    columns {
+      name = "temp_min"
+      type = "double"
+    }
+    columns {
+      name = "temp_max"
+      type = "double"
+    }
+    columns {
+      name = "pressure"
+      type = "bigint"
+    }
+    columns {
+      name = "sea_level_pressure"
+      type = "double"
+    }
+    columns {
+      name = "ground_level_pressure"
+      type = "double"
+    }
+    columns {
+      name = "humidity"
+      type = "bigint"
+    }
+    columns {
+      name = "visibility"
+      type = "bigint"
+    }
+    columns {
+      name = "wind_speed"
+      type = "double"
+    }
+    columns {
+      name = "wind_deg"
+      type = "double"
+    }
+    columns {
+      name = "wind_gust"
+      type = "double"
+    }
+    columns {
+      name = "clouds_all"
+      type = "double"
+    }
+    columns {
+      name = "rain_1h"
+      type = "double"
+    }
+    columns {
+      name = "rain_3h"
+      type = "double"
+    }
+    columns {
+      name = "snow_1h"
+      type = "double"
+    }
+    columns {
+      name = "snow_3h"
+      type = "double"
+    }
+    columns {
+      name = "sys_type"
+      type = "bigint"
+    }
+    columns {
+      name = "sys_id"
+      type = "bigint"
+    }
+    columns {
+      name = "sys_message"
+      type = "double"
+    }
+    columns {
+      name = "timezone_offset"
+      type = "bigint"
+    }
+    columns {
+      name = "dt_utc"
+      type = "string"
+    }
+    columns {
+      name = "dt_local"
+      type = "string"
+    }
+    columns {
+      name = "sunrise_utc"
+      type = "string"
+    }
+    columns {
+      name = "sunrise_local"
+      type = "string"
+    }
+    columns {
+      name = "sunset_utc"
+      type = "string"
+    }
+    columns {
+      name = "sunset_local"
+      type = "string"
+    }
+    columns {
+      name = "http_status_code"
+      type = "bigint"
+    }
+    columns {
+      name = "ingested_at_utc"
+      type = "string"
+    }
+    columns {
+      name = "ingested_at_local"
+      type = "string"
+    }
+    columns {
+      name = "source_raw_file"
+      type = "string"
+    }
+  }
+
+  partition_keys {
+    name = "partition_date"
+    type = "string"
   }
 }
 
