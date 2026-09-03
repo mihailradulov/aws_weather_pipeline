@@ -182,13 +182,13 @@ resource "aws_lambda_function" "silver_lambda" {
 # 5. S3 EVENTBRIDGE NOTIFICATION & TRIGGER
 # ==========================================
 
-# Активиране на EventBridge notifications за Bronze бъкета
+# Activating EventBridge notifications for Bronze bucket
 resource "aws_s3_bucket_notification" "bronze_file_notification" {
   bucket      = aws_s3_bucket.bronze_bucket.id
   eventbridge = true
 }
 
-# EventBridge Rule: Прихваща 'Object Created' събития от Bronze бъкета
+# EventBridge Rule: Catch 'Object Created' events from Bronze bucket
 resource "aws_cloudwatch_event_rule" "s3_bronze_object_created" {
   name        = "s3_bronze_object_created_rule"
   description = "Trigger Silver Lambda on new S3 object in Bronze bucket"
@@ -204,18 +204,114 @@ resource "aws_cloudwatch_event_rule" "s3_bronze_object_created" {
   })
 }
 
-# EventBridge Target: Извиква Silver Lambda
+# EventBridge Target: Triggers Silver Lambda
 resource "aws_cloudwatch_event_target" "trigger_silver_lambda" {
   rule      = aws_cloudwatch_event_rule.s3_bronze_object_created.name
   target_id = "TriggerSilverLambda"
   arn       = aws_lambda_function.silver_lambda.arn
 }
 
-# Разрешение за EventBridge да вика Silver Lambda
+# Permission for EventBridge to invoke Silver Lambda
 resource "aws_lambda_permission" "allow_eventbridge_to_trigger_silver" {
   statement_id  = "AllowExecutionFromEventBridge"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.silver_lambda.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.s3_bronze_object_created.arn
+}
+
+# ==========================================
+# 6. AWS GLUE DATA CATALOG & ATHENA
+# ==========================================
+
+# Glue Database for Silver layer
+resource "aws_glue_catalog_database" "weather_silver_db" {
+  name        = "weather_silver_db_${var.environment}"
+  description = "Glue Catalog Database for Silver Parquet Weather Data"
+}
+
+# Glue Crawler for automatic schema and partition discovery in Silver S3
+resource "aws_glue_crawler" "silver_weather_crawler" {
+  database_name = aws_glue_catalog_database.weather_silver_db.name
+  name          = "weather_silver_crawler_${var.environment}"
+  role          = aws_iam_role.glue_crawler_role.arn
+
+  s3_target {
+    path = "s3://${aws_s3_bucket.silver_bucket.bucket}/"
+  }
+
+  # Refreshing the catalog on changes
+  schema_change_policy {
+    delete_behavior = "LOG"
+    update_behavior = "UPDATE_IN_DATABASE"
+  }
+}
+
+# IAM Role for Glue Crawler
+resource "aws_iam_role" "glue_crawler_role" {
+  name = "weather_glue_crawler_role_${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "glue.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "glue_service_attachment" {
+  role       = aws_iam_role.glue_crawler_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
+}
+
+resource "aws_iam_role_policy_attachment" "glue_s3_attachment" {
+  role       = aws_iam_role.glue_crawler_role.name
+  policy_arn = aws_iam_policy.s3_access_policy.arn
+}
+
+# S3 Bucket for Athena query results
+resource "aws_s3_bucket" "athena_results_bucket" {
+  bucket        = "s3-athena-results-${data.aws_caller_identity.current.account_id}"
+  force_destroy = true
+}
+
+# Athena Workgroup
+resource "aws_athena_workgroup" "weather_athena_workgroup" {
+  name = "weather_analytics_workgroup"
+
+  configuration {
+    enforce_workgroup_configuration    = true
+    publish_cloudwatch_metrics_enabled = true
+
+    result_configuration {
+      output_location = "s3://${aws_s3_bucket.athena_results_bucket.bucket}/queries/"
+    }
+  }
+}
+
+# ==========================================
+# 7. CLOUDWATCH ALARMS FOR MONITORING
+# ==========================================
+
+# Alarm for errors in Silver Lambda
+resource "aws_cloudwatch_metric_alarm" "silver_lambda_error_alarm" {
+  alarm_name          = "silver_lambda_execution_errors"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "Errors"
+  namespace           = "AWS/Lambda"
+  period              = 300
+  statistic           = "Sum"
+  threshold           = 1
+  alarm_description   = "This alarm is triggered when at least 1 error occurs in the Silver Lambda function within a 5-minute period."
+
+  dimensions = {
+    FunctionName = aws_lambda_function.silver_lambda.function_name
+  }
 }
