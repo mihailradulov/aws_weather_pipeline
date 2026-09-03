@@ -361,11 +361,11 @@ resource "aws_glue_catalog_table" "weather_silver_table" {
     }
     columns {
       name = "sea_level_pressure"
-      type = "double"
+      type = "bigint"
     }
     columns {
       name = "ground_level_pressure"
-      type = "double"
+      type = "bigint"
     }
     columns {
       name = "humidity"
